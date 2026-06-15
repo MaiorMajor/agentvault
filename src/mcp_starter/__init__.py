@@ -1,0 +1,3 @@
+"""MCP server for Obsidian vaults with typed skills and deterministic routing."""
+
+__version__ = "1.14.0"

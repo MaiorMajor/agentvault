@@ -8,7 +8,7 @@
 [![transport](https://img.shields.io/badge/transport-SSE%20%2B%20Streamable%20HTTP-orange)]()
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)]()
 
-This is the open-source skeleton of an MCP server that has been running in production for **6 months**. This repo ships **14 core MCP tools** plus **3 typed skill tools** (`vault_dispatch`, `vault_find`, `vault_graph`). (`vault-dispatch`, `vault-find`, `vault-graph`) — the same architecture scales to dozens of typed skills over a real Obsidian vault.
+This is the open-source skeleton of an MCP server that has been running in production for **6 months**. This repo ships **14 core MCP tools** plus **3 typed skill tools** (`vault_dispatch`, `vault_find`, `vault_graph`) — the same architecture scales to dozens of typed skills over a real Obsidian vault.
 
 ---
 
@@ -34,21 +34,21 @@ The vault is your content (`VAULT_PATH`). Skills, routing hints, and the system 
 ## Install (≤ 3 steps)
 
 ```bash
-# 1. Clone and install
+# 1. Clone and install (editable — skills + system prompt stay at repo root)
 git clone https://github.com/MaiorMajor/mcp-starter.git && cd mcp-starter
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
 
-# 2. Point it at your vault and set secrets
-cp .env.example .env
-#   VAULT_PATH=/path/to/your/vault
-#   MCP_API_KEY=$(openssl rand -hex 32)
-#   JWT_SECRET=$(openssl rand -hex 32)
-#   OAUTH_PASSWORD=...            # for the browser login form
+# 2. Scaffold a vault and generate .env secrets
+mcp-starter init /path/to/your/vault
+# or: cp .env.example .env and set VAULT_PATH, MCP_API_KEY, JWT_SECRET, OAUTH_PASSWORD
 
 # 3. Run
-.venv/bin/python obsidian_mcp.py        # serves on :8000
-curl localhost:8000/health              # {"status":"ok",...}
+mcp-starter serve                    # :8000
+curl localhost:8000/health           # {"status":"ok",...}
 ```
+
+`obsidian_mcp.py` remains as a thin back-compat shim (`python obsidian_mcp.py`).
 
 Then point any MCP client at it with `Authorization: Bearer $MCP_API_KEY` (or the OAuth/PKCE flow for Claude.ai). Behind nginx + a domain you get `https://your-host/mcp`.
 
@@ -69,7 +69,7 @@ _PRIVADO/        # blind to MCP — never listed, read, or written
 1. Set `VAULT_PATH` in `.env`.
 2. Edit `skill_hints.json` in this repo → keywords that map to *your* folders and skills, so `vault-dispatch` knows where your topics live.
 3. Edit `system_prompt.md` at the repo root. It's loaded on every `initialize` — no redeploy to change agent behaviour.
-4. (Optional) Run `vault-graph` once to build the link snapshot: `run_skill("vault-graph")` or `python skills/vault-graph/main.py`.
+4. (Optional) Build the link snapshot: `mcp-starter graph-build` or `python skills/vault-graph/main.py`.
 
 That's it — `read_note`, `write_note`, `edit_note`, `find_files`, `vault-dispatch` work immediately on your content.
 
@@ -107,7 +107,7 @@ Each skill ships a `manifest.json` that registers a **real MCP tool** with `inpu
         └──────────────┬───────────────┘
                        │  OAuth 2.0 PKCE  ·  Bearer (static key or 30d JWT)
         ┌──────────────▼───────────────────────────────────────┐
-        │  obsidian_mcp.py  (Starlette + uvicorn, ~2k LOC)      │
+        │  mcp_starter.server  (Starlette + uvicorn)              │
         │  • 14 tools  • caps + truncation hints               │
         │  • system prompt from system_prompt.md on initialize │
         └──────────────┬───────────────────────────────────────┘
@@ -131,7 +131,7 @@ Each skill ships a `manifest.json` that registers a **real MCP tool** with `inpu
 ```ini
 # /etc/systemd/system/mcp-obsidian.service
 [Service]
-ExecStart=/home/you/mcp-env/bin/python /home/you/mcp-server/obsidian_mcp.py
+ExecStart=/home/you/mcp-env/bin/mcp-starter serve
 Restart=always
 EnvironmentFile=/home/you/mcp-server/.env
 ```

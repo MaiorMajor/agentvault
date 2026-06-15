@@ -6,8 +6,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from vault_file_search import FindFilesParams, search_files
-from vault_security import is_protected_resolved, resolve_under_vault
+from mcp_starter.server import pkce_verify
+from mcp_starter.vault_file_search import FindFilesParams, search_files
+from mcp_starter.vault_security import resolve_under_vault
 
 
 class TestExcludeMd(unittest.TestCase):
@@ -42,21 +43,11 @@ class TestVaultSecurity(unittest.TestCase):
 
 
 class TestPkce(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        import os
-
-        os.environ.setdefault("VAULT_PATH", "/tmp")
-        os.environ.setdefault("JWT_SECRET", "unit-test-jwt-secret")
-        os.environ.setdefault("OAUTH_PASSWORD", "unit-test-password")
-
     def test_s256_only(self) -> None:
-        import obsidian_mcp as mcp
-
         verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
         challenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
-        self.assertTrue(mcp.pkce_verify(verifier, challenge, "S256"))
-        self.assertFalse(mcp.pkce_verify(verifier, challenge, "plain"))
+        self.assertTrue(pkce_verify(verifier, challenge, "S256"))
+        self.assertFalse(pkce_verify(verifier, challenge, "plain"))
 
 
 if __name__ == "__main__":

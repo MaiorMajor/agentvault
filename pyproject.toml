@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcp-obsidian-starter"
+version = "1.14.0"
+description = "Typed MCP server for Obsidian vaults with deterministic routing and example skills"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [{ name = "Jorge MM Marques" }]
+keywords = ["mcp", "obsidian", "markdown", "llm", "agents"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+  "starlette>=0.37",
+  "uvicorn>=0.29",
+  "sse-starlette>=2.0",
+  "pyjwt>=2.8",
+  "python-dotenv>=1.0",
+  "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.4",
+]
+
+[project.scripts]
+mcp-starter = "mcp_starter.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/MaiorMajor/mcp-starter"
+Repository = "https://github.com/MaiorMajor/mcp-starter"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"skills/**" = ["I001"]

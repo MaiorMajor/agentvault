@@ -1,6 +1,7 @@
-starlette
-uvicorn
-sse-starlette
-pyjwt
-python-dotenv
-python-multipart
+# Prefer: pip install -e ".[dev]"
+starlette>=0.37
+uvicorn>=0.29
+sse-starlette>=2.0
+pyjwt>=2.8
+python-dotenv>=1.0
+python-multipart>=0.0.9

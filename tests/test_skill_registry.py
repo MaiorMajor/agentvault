@@ -2,12 +2,10 @@
 """Tests for skill manifest registry."""
 from __future__ import annotations
 
-import json
-import tempfile
 import unittest
 from pathlib import Path
 
-import skill_registry
+from mcp_starter import skill_registry
 
 
 class TestSkillRegistry(unittest.TestCase):

@@ -10,11 +10,10 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-_AGENTS_DIR = REPO_ROOT
-if str(_AGENTS_DIR) not in sys.path:
-    sys.path.insert(0, str(_AGENTS_DIR))
+if str(REPO_ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from vault_file_search import FindFilesParams, TYPE_EXTENSIONS, search_files  # noqa: E402
+from mcp_starter.vault_file_search import FindFilesParams, TYPE_EXTENSIONS, search_files  # noqa: E402
 
 
 def human_size(n: int) -> str:

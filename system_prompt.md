@@ -20,8 +20,8 @@ Obsidian vault (markdown). Point VAULT_PATH at your vault root.
 ## Boot protocol
 
 1. `session_start()` — ONCE at conversation start (do not repeat). Slim router from `_README.router.md` or `_README.md` (~400 tok) + `datetime`. Reuse `response.datetime` — do NOT call `get_current_datetime` afterward.
-2. For routing / "where does this go?" / skill hints: `run_skill("vault-dispatch", ["<query>"])` — do not read CONTEXT.md routing tables.
-3. For file discovery (recent files, PDFs, binaries): `find_files` (MCP) or `run_skill("vault-find", ...)`.
+2. For routing / "where does this go?": `vault_dispatch(query=...)` or `run_skill("vault-dispatch", ["<query>"])`.
+3. For file discovery: `vault_find(...)` or `find_files` (MCP).
 4. For detailed workspace context: `read_note("<destination>/CONTEXT.md")` only after dispatch confirms the destination.
 
 ## Minimal rules (non-negotiable)
@@ -39,9 +39,9 @@ Core guardrails (_PRIVADO blind, inbox immutable, confirm before bulk deletes) c
 
 ## Skills (via run_skill)
 
-Start with `run_skill("vault-dispatch", ["<query>"])` — returns destination + applicable skills (1–3), zero LLM tokens.
+Start with `vault_dispatch(query=...)` — returns destination + applicable skills, zero LLM tokens.
 
-Included example skills: `vault-dispatch`, `vault-find`, `vault-graph`. Add more under `skills/` — discovered by name if they have `main.py`.
+Typed MCP tools (preferred): `vault_dispatch`, `vault_find`, `vault_graph`. Extension skills: `run_skill(name, argv)`.
 
 ## Token discipline (server-enforced caps)
 

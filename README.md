@@ -3,12 +3,12 @@
 > Turn any Obsidian vault (or plain markdown folder) into a typed, agent-native second brain — served over the Model Context Protocol, with deterministic routing that spends **zero LLM tokens** to decide where things go.
 
 [![status](https://img.shields.io/badge/status-starter-success)]()
-[![protocol](https://img.shields.io/badge/MCP-2025--03--26-blue)](https://modelcontextprotocol.io)
+[![protocol](https://img.shields.io/badge/MCP-2025--11--25-blue)](https://modelcontextprotocol.io)
 [![python](https://img.shields.io/badge/python-3.11+-3776ab)](https://www.python.org)
 [![transport](https://img.shields.io/badge/transport-SSE%20%2B%20Streamable%20HTTP-orange)]()
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)]()
 
-This is the open-source skeleton of an MCP server that has been running in production for **6 months**. This repo ships **14 MCP tools** and **3 example skills** (`vault-dispatch`, `vault-find`, `vault-graph`) — the same architecture scales to dozens of typed skills over a real Obsidian vault.
+This is the open-source skeleton of an MCP server that has been running in production for **6 months**. This repo ships **14 core MCP tools** plus **3 typed skill tools** (`vault_dispatch`, `vault_find`, `vault_graph`). (`vault-dispatch`, `vault-find`, `vault-graph`) — the same architecture scales to dozens of typed skills over a real Obsidian vault.
 
 ---
 
@@ -83,24 +83,17 @@ Every tool carries the right MCP `annotations` (`readOnlyHint`, `destructiveHint
 
 ---
 
-## Included example skills
+## Included example skills (typed MCP tools)
 
-This repo includes three skills that demonstrate zero-token routing, metadata discovery, and graph queries:
+Each skill ships a `manifest.json` that registers a **real MCP tool** with `inputSchema` — clients see `vault_dispatch(query, top)` instead of only `run_skill("vault-dispatch", [...])`.
 
-| Skill | What it does |
-|-------|----------------|
-| `vault-dispatch` | "Where does this note go?" — pattern matching, **0 LLM tokens** |
-| `vault-find` | Find files by name, extension, date, size — metadata only |
-| `vault-graph` | Backlinks, hubs, orphans — queries a snapshot **never shown to the model** |
+| MCP tool | Skill dir | What it does |
+|----------|-----------|----------------|
+| `vault_dispatch` | `vault-dispatch/` | "Where does this go?" — **0 LLM tokens** |
+| `vault_find` | `vault-find/` | File metadata scan (name, ext, date) |
+| `vault_graph` | `vault-graph/` | Backlinks, hubs, orphans — graph hidden |
 
-```
-skills/<name>/
-  AGENT.md         # how an agent uses it — read FIRST
-  SPEC.md          # contract (vault-dispatch, vault-find)
-  main.py          # implementation (stdlib; optional .venv per skill)
-```
-
-Agents call one MCP tool — `run_skill("<name>", [args])` — and the server finds the skill by name (`rglob`), runs it, and returns capped stdout.
+`run_skill` remains for extension skills you add under `skills/` with `main.py` + optional `manifest.json`.
 
 ---
 

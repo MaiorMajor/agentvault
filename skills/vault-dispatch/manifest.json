@@ -1,0 +1,38 @@
+{
+  "name": "vault_dispatch",
+  "skill_dir": "vault-dispatch",
+  "description": "Resolve where new vault content should go — deterministic pattern matching, zero LLM tokens. Returns destination folder + applicable skills.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Topic, task, or note subject to route"
+      },
+      "top": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 5,
+        "description": "Number of destination matches to return (default 3)"
+      },
+      "output": {
+        "type": "string",
+        "enum": ["markdown", "json"],
+        "description": "Response format (default markdown)"
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "argv_map": {
+    "query": {"positional": true},
+    "top": {"flag": "--top", "type": "int"},
+    "output": {"flag": "--output"}
+  },
+  "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

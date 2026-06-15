@@ -1,0 +1,83 @@
+{
+  "name": "vault_graph",
+  "skill_dir": "vault-graph",
+  "description": "Query the vault wikilink graph from a snapshot — backlinks, hubs, orphans, paths. Never loads the full graph JSON into context.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "subcommand": {
+        "type": "string",
+        "enum": [
+          "build",
+          "stats",
+          "backlinks",
+          "forward",
+          "neighbors",
+          "hubs",
+          "orphans",
+          "tag",
+          "node",
+          "path",
+          "find"
+        ],
+        "description": "Graph operation. Use build to regenerate snapshot; others are read-only queries."
+      },
+      "note": {
+        "type": "string",
+        "description": "Note basename or path (for backlinks, forward, neighbors, node)"
+      },
+      "tag": {
+        "type": "string",
+        "description": "Tag name (for tag subcommand)"
+      },
+      "pattern": {
+        "type": "string",
+        "description": "Fuzzy basename pattern (for find subcommand)"
+      },
+      "from_note": {
+        "type": "string",
+        "description": "Path start (for path subcommand)"
+      },
+      "to_note": {
+        "type": "string",
+        "description": "Path end (for path subcommand)"
+      },
+      "top": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "description": "Top N hubs (default 20)"
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "description": "Max rows for list-style queries"
+      },
+      "depth": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 5,
+        "description": "Neighbor depth (default 1)"
+      },
+      "direction": {
+        "type": "string",
+        "enum": ["in", "out", "both"],
+        "description": "Edge direction for neighbors"
+      },
+      "dry_run": {
+        "type": "boolean",
+        "description": "For build: stats only, do not write graph.json"
+      }
+    },
+    "required": ["subcommand"],
+    "additionalProperties": false
+  },
+  "argv_builder": "vault_graph",
+  "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

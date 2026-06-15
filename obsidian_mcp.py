@@ -38,6 +38,7 @@ import logging
 import os
 import re
 import secrets
+import signal
 import subprocess
 import sys
 import time
@@ -50,6 +51,7 @@ from urllib.parse import urlencode, urlparse
 from zoneinfo import ZoneInfo
 
 import vault_security as vsec
+import skill_registry
 
 import uvicorn
 from dotenv import load_dotenv
@@ -82,14 +84,41 @@ REFRESH_TOKEN_TTL: int = int(os.getenv("REFRESH_TOKEN_TTL_SECONDS", str(30 * 24 
 OAUTH_CLIENTS_FILE: Path = Path(os.getenv("OAUTH_CLIENTS_FILE", str(REPO_ROOT / "oauth_clients.json")))
 OAUTH_RATE_LIMIT: int = int(os.getenv("OAUTH_RATE_LIMIT", "30"))
 OAUTH_RATE_WINDOW: int = int(os.getenv("OAUTH_RATE_WINDOW_SECONDS", "300"))
-SERVER_VERSION: str = "1.12.0"
-SUPPORTED_PROTOCOL_VERSIONS: tuple[str, ...] = ("2025-03-26", "2024-11-05")
+SERVER_VERSION: str = "1.13.0"
+DEFAULT_PROTOCOL_VERSION: str = "2025-11-25"
+SUPPORTED_PROTOCOL_VERSIONS: tuple[str, ...] = (
+    "2025-11-25",
+    "2025-03-26",
+    "2024-11-05",
+)
+ALLOWED_ORIGINS: frozenset[str] = frozenset(
+    o.strip() for o in os.getenv("MCP_ALLOWED_ORIGINS", "").split(",") if o.strip()
+)
 PROTECTED_METHODS: set[str] = {"tools/call"}
 
 if not JWT_SECRET.strip() or JWT_SECRET == "change-me-in-production":
     raise RuntimeError("JWT_SECRET must be set to a strong secret in production.")
 if not OAUTH_PASSWORD.strip():
     raise RuntimeError("OAUTH_PASSWORD must be set in production.")
+
+SKILL_MANIFESTS: list[skill_registry.SkillManifest] = skill_registry.discover_manifests(SKILLS_ROOT)
+SKILL_MANIFEST_BY_NAME: dict[str, skill_registry.SkillManifest] = {m.name: m for m in SKILL_MANIFESTS}
+
+
+def _validate_skill_dirs(skills_root: Path) -> None:
+    seen: dict[str, Path] = {}
+    for main_py in skills_root.rglob("main.py"):
+        if "_shared" in main_py.parts:
+            continue
+        name = main_py.parent.name
+        if name in seen:
+            raise RuntimeError(
+                f"Duplicate skill name '{name}': {seen[name]} and {main_py.parent}"
+            )
+        seen[name] = main_py.parent
+
+
+_validate_skill_dirs(SKILLS_ROOT)
 
 # Response size caps (all MCP clients)
 SEARCH_MAX_RESULTS: int = 30
@@ -366,10 +395,30 @@ def request_requires_auth(body: Any) -> bool:
     return any(msg.get("method", "") in PROTECTED_METHODS for msg in _messages_from_body(body))
 
 
-def negotiate_protocol_version(requested: str) -> str:
+def negotiate_protocol_version(requested: str) -> tuple[str, str | None]:
+    if not requested:
+        return DEFAULT_PROTOCOL_VERSION, None
     if requested in SUPPORTED_PROTOCOL_VERSIONS:
-        return requested
-    return SUPPORTED_PROTOCOL_VERSIONS[0]
+        return requested, None
+    supported = ", ".join(SUPPORTED_PROTOCOL_VERSIONS)
+    return DEFAULT_PROTOCOL_VERSION, f"Unsupported protocol version: {requested}. Supported: {supported}"
+
+
+def _validate_transport_request(request: Request) -> JSONResponse | None:
+    origin = request.headers.get("origin")
+    if origin and ALLOWED_ORIGINS and origin not in ALLOWED_ORIGINS:
+        return JSONResponse({"error": "Forbidden origin"}, status_code=403)
+    protocol = request.headers.get("mcp-protocol-version")
+    if protocol and protocol not in SUPPORTED_PROTOCOL_VERSIONS:
+        return JSONResponse(
+            {"error": f"Unsupported MCP-Protocol-Version: {protocol}"},
+            status_code=400,
+        )
+    if request.method == "POST":
+        accept = request.headers.get("accept", "*/*")
+        if accept != "*/*" and "application/json" not in accept and "text/event-stream" not in accept:
+            return JSONResponse({"error": "Accept must include application/json"}, status_code=406)
+    return None
 
 
 def _json_log(**payload: Any) -> None:
@@ -1342,6 +1391,15 @@ def _get_current_datetime() -> dict:
     }
 
 
+def _skill_subprocess_env() -> dict[str, str]:
+    allowed = ("PATH", "LANG", "LC_ALL", "HOME", "PYTHONIOENCODING", "TZ")
+    env = {k: os.environ[k] for k in allowed if k in os.environ}
+    env["VAULT_PATH"] = str(VAULT_PATH)
+    env["SKILLS_ROOT"] = str(SKILLS_ROOT)
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+    return env
+
+
 def _run_skill(skill: str, argv: Optional[list] = None) -> dict:
     if not skill:
         return {"error": "skill name is required"}
@@ -1365,6 +1423,8 @@ def _run_skill(skill: str, argv: Optional[list] = None) -> dict:
     matches = list(skills_root.rglob(f"{skill}/main.py"))
     if not matches:
         return {"error": f"Skill '{skill}' not found under {skills_root}/"}
+    if len(matches) > 1:
+        return {"error": f"Ambiguous skill name '{skill}' — multiple matches under {skills_root}/"}
     skill_path = matches[0]
     skill_dir = skill_path.parent
     if sys.platform == "win32":
@@ -1373,9 +1433,7 @@ def _run_skill(skill: str, argv: Optional[list] = None) -> dict:
         venv_py = skill_dir / ".venv" / "bin" / "python"
     py = str(venv_py) if venv_py.exists() else sys.executable
     cmd = [py, str(skill_path)] + [str(a) for a in (argv or [])]
-    env = os.environ.copy()
-    env["VAULT_PATH"] = str(VAULT_PATH)
-    env["SKILLS_ROOT"] = str(skills_root)
+    env = _skill_subprocess_env()
     try:
         proc = subprocess.run(
             cmd,
@@ -1384,6 +1442,7 @@ def _run_skill(skill: str, argv: Optional[list] = None) -> dict:
             timeout=45,
             cwd=str(skill_path.parent),
             env=env,
+            start_new_session=True,
         )
         stdout = proc.stdout or ""
         stderr = proc.stderr or ""
@@ -1400,10 +1459,35 @@ def _run_skill(skill: str, argv: Optional[list] = None) -> dict:
         if stderr_trunc:
             out["stderr_truncated"] = True
         return out
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
+        if exc.pid:
+            try:
+                os.killpg(os.getpgid(exc.pid), signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                pass
         return {"error": f"Skill '{skill}' timed out after 45s"}
     except Exception as e:
         return {"error": str(e)}
+
+
+def _dispatch_typed_skill(tool_name: str, args: dict) -> Any:
+    manifest = SKILL_MANIFEST_BY_NAME.get(tool_name)
+    if manifest is None:
+        return {"error": f"Unknown typed skill tool: {tool_name}"}
+    try:
+        argv = skill_registry.args_to_argv(manifest, args or {})
+    except ValueError as exc:
+        return {"error": str(exc)}
+    out = _run_skill(manifest.skill_dir, argv)
+    if out.get("error"):
+        return out
+    stdout = (out.get("stdout") or "").strip()
+    if stdout:
+        try:
+            out["result"] = json.loads(stdout)
+        except json.JSONDecodeError:
+            out["result"] = stdout
+    return out
 
 
 def _session_start() -> dict:
@@ -1429,6 +1513,8 @@ def _session_start() -> dict:
 
 
 def dispatch_tool(name: str, args: dict) -> Any:
+    if name in SKILL_MANIFEST_BY_NAME:
+        return _dispatch_typed_skill(name, args)
     dispatch = {
         "session_start":        lambda: _session_start(),
         "list_folder":          lambda: _list_folder(args.get("path", ""), bool(args.get("stats", False)), bool(args.get("recursive", False))),
@@ -1463,7 +1549,7 @@ def dispatch_tool(name: str, args: dict) -> Any:
 
 # ─── MCP tool schema ──────────────────────────────────────────────────────────
 
-MCP_TOOLS = [
+BASE_MCP_TOOLS = [
     {
         "name": "session_start",
         "title": "Session Start",
@@ -1744,9 +1830,8 @@ MCP_TOOLS = [
         "name": "run_skill",
         "title": "Run Skill",
         "description": (
-            "Execute a skill from skills/ (searched recursively by name; must have main.py). "
-            "Read the skill's AGENT.md first to understand argv format. "
-            "vault-dispatch routes NEW content to correct folder — not a search tool."
+            "Execute an extension skill by directory name (must have main.py). "
+            "Prefer typed tools vault_dispatch, vault_find, vault_graph when available."
         ),
         "annotations": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False},
         "inputSchema": {
@@ -1764,6 +1849,15 @@ MCP_TOOLS = [
         },
     },
 ]
+
+
+def get_mcp_tools() -> list[dict[str, Any]]:
+    typed = [skill_registry.manifest_to_mcp_tool(m) for m in SKILL_MANIFESTS]
+    return BASE_MCP_TOOLS + typed
+
+
+MCP_TOOLS = get_mcp_tools()  # backwards-compatible export
+
 
 # ─── System prompt loader ─────────────────────────────────────────────────────
 
@@ -1809,7 +1903,10 @@ def handle_mcp_message(body: Any, authenticated: bool = False) -> dict:
     params = body.get("params") or {}
 
     if method == "initialize":
-        protocol_version = negotiate_protocol_version(str(params.get("protocolVersion", "")))
+        requested = str(params.get("protocolVersion", ""))
+        protocol_version, protocol_error = negotiate_protocol_version(requested)
+        if protocol_error and requested:
+            return _err(msg_id, -32602, protocol_error)
         return _ok(msg_id, {
             "protocolVersion": protocol_version,
             "serverInfo": {"name": "obsidian-mcp", "version": SERVER_VERSION},
@@ -1822,7 +1919,7 @@ def handle_mcp_message(body: Any, authenticated: bool = False) -> dict:
         })
 
     if method == "tools/list":
-        return _ok(msg_id, {"tools": copy.deepcopy(MCP_TOOLS)})
+        return _ok(msg_id, {"tools": copy.deepcopy(get_mcp_tools())})
 
     if method == "tools/call":
         tool_name = params.get("name", "")
@@ -1891,6 +1988,9 @@ async def sse_endpoint(request: Request) -> Response:
 
 async def messages_endpoint(request: Request) -> JSONResponse:
     request_id = secrets.token_hex(8)
+    transport_error = _validate_transport_request(request)
+    if transport_error is not None:
+        return transport_error
     try:
         body = await request.json()
     except Exception as exc:
@@ -1904,6 +2004,12 @@ async def messages_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse(
             {"error": "invalid_request", "error_description": "Body must be valid JSON"},
+            status_code=400,
+        )
+
+    if isinstance(body, list):
+        return JSONResponse(
+            _err(None, -32600, "Batch requests are not supported"),
             status_code=400,
         )
 
@@ -1979,6 +2085,9 @@ async def mcp_streamable_endpoint(request: Request) -> Response:
     Single endpoint — stateless JSON-RPC, no SSE session required.
     """
     request_id = secrets.token_hex(8)
+    transport_error = _validate_transport_request(request)
+    if transport_error is not None:
+        return transport_error
     if request.method == "GET":
         _json_log(
             event="mcp_streamable_http",
@@ -2005,6 +2114,16 @@ async def mcp_streamable_endpoint(request: Request) -> Response:
             {"error": "invalid_request", "error_description": "Body must be valid JSON"},
             status_code=400,
         )
+
+    if isinstance(body, list):
+        _json_log(
+            event="mcp_streamable_http",
+            request_id=request_id,
+            http_path="/mcp",
+            http_status=400,
+            status="batch_not_supported",
+        )
+        return JSONResponse(_err(None, -32600, "Batch requests are not supported"), status_code=400)
 
     summary = _jsonrpc_summary(body)
     header_error = _validate_streamable_headers(request, body)
@@ -2040,51 +2159,25 @@ async def mcp_streamable_endpoint(request: Request) -> Response:
             headers={"WWW-Authenticate": WWW_AUTH},
         )
 
-    # Handle batch (array) or single request
-    if isinstance(body, list):
-        authenticated = authenticate_request(request)
-        responses: list[dict] = []
-        for msg in body:
-            if not isinstance(msg, dict):
-                responses.append(_err(None, -32600, "Invalid Request: batch items must be objects"))
-                continue
-            r = handle_mcp_message(msg, authenticated=authenticated)
-            if r:
-                responses.append(r)
-        if not responses:
-            empty_status = _response_status_for_empty_result(body)
-            _json_log(
-                event="mcp_streamable_http",
-                request_id=request_id,
-                http_path="/mcp",
-                http_status=empty_status,
-                status="accepted_notification" if empty_status == 202 else "no_content",
-                auth_mode="bearer" if get_bearer_token(request) else "none",
-                protocol_version_header=request.headers.get("mcp-protocol-version", ""),
-                mcp_session_id_received=request.headers.get("mcp-session-id", ""),
-                **summary,
-            )
-            return Response(status_code=empty_status)
-        result = responses[0] if len(responses) == 1 else responses
-    else:
-        if not isinstance(body, dict):
-            return JSONResponse(_err(None, -32600, "Invalid Request"), status_code=400)
-        authenticated = authenticate_request(request)
-        result = handle_mcp_message(body, authenticated=authenticated)
-        if not result:
-            empty_status = _response_status_for_empty_result(body)
-            _json_log(
-                event="mcp_streamable_http",
-                request_id=request_id,
-                http_path="/mcp",
-                http_status=empty_status,
-                status="accepted_notification" if empty_status == 202 else "no_content",
-                auth_mode="bearer" if get_bearer_token(request) else "none",
-                protocol_version_header=request.headers.get("mcp-protocol-version", ""),
-                mcp_session_id_received=request.headers.get("mcp-session-id", ""),
-                **summary,
-            )
-            return Response(status_code=empty_status)
+    if not isinstance(body, dict):
+        return JSONResponse(_err(None, -32600, "Invalid Request"), status_code=400)
+
+    authenticated = authenticate_request(request)
+    result = handle_mcp_message(body, authenticated=authenticated)
+    if not result:
+        empty_status = _response_status_for_empty_result(body)
+        _json_log(
+            event="mcp_streamable_http",
+            request_id=request_id,
+            http_path="/mcp",
+            http_status=empty_status,
+            status="accepted_notification" if empty_status == 202 else "no_content",
+            auth_mode="bearer" if get_bearer_token(request) else "none",
+            protocol_version_header=request.headers.get("mcp-protocol-version", ""),
+            mcp_session_id_received=request.headers.get("mcp-session-id", ""),
+            **summary,
+        )
+        return Response(status_code=empty_status)
 
     _json_log(
         event="mcp_streamable_http",

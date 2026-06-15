@@ -1,0 +1,57 @@
+{
+  "name": "vault_find",
+  "skill_dir": "vault-find",
+  "description": "Discover vault files by name, extension, date, or size — metadata only, no content reads. Prefer over list_folder for recent or non-markdown files.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Glob on filename (e.g. *report*, *.pdf)"
+      },
+      "ext": {
+        "type": "string",
+        "description": "Comma-separated extensions (e.g. .pdf,.docx)"
+      },
+      "path_contains": {
+        "type": "string",
+        "description": "Substring in vault-relative path"
+      },
+      "today": {
+        "type": "boolean",
+        "description": "Files modified or created today"
+      },
+      "yesterday": {
+        "type": "boolean",
+        "description": "Files from yesterday"
+      },
+      "brief": {
+        "type": "boolean",
+        "description": "One line per file: path + title peek for .md"
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "description": "Max results (default 100)"
+      }
+    },
+    "additionalProperties": false
+  },
+  "argv_map": {
+    "name": {"flag": "--name"},
+    "ext": {"flag": "--ext"},
+    "path_contains": {"flag": "--path-contains"},
+    "today": {"flag": "--today", "boolean": true},
+    "yesterday": {"flag": "--yesterday", "boolean": true},
+    "brief": {"flag": "--brief", "boolean": true},
+    "limit": {"flag": "--limit", "type": "int"}
+  },
+  "fixed_argv": ["--output", "json"],
+  "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

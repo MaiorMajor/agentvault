@@ -37,34 +37,6 @@ FORBIDDEN = {"_PRIVADO"}
 _SKILL_HINTS_PATH = REPO_ROOT / "skill_hints.json"
 _SKILL_HINTS_CACHE: dict | None = None
 
-NEXT_ACTION_TRIGGER_PATTERNS = [
-    r"\bestou\s+bloquead[oa]s?\b",
-    r"\bn[aã]o\s+sei\s+o\s+que\s+fazer(?:\s+agora)?\b",
-    r"\bo\s+que\s+fa[cç]o\s+agora\b",
-    r"\btenho\s+demasiad[ao]s?\s+coisas\b.*\b(?:escolher|decidir)\b",
-    r"\bestou\s+perdido\b",
-    r"\bajuda-?me\s+a\s+escolher\b",
-    r"\bpr[oó]xima\s+a[cç][aã]o\b",
-]
-
-NEXT_ACTION_EXPLAIN_PATTERNS = [
-    r"\bexplica(?:-?me)?\b.*\bm[eé]todo\b.*\bproteger\b.*\bavan[cç]ar\b.*\bdesbloquear\b",
-    r"\bo\s+que\s+[eé]\s+o\s+m[eé]todo\b.*\bproteger\b.*\bavan[cç]ar\b.*\bdesbloquear\b",
-]
-
-NEXT_ACTION_CONTRACT = """A — Proteger: <ação>
-<razão curta>
-
-B — Avançar: <ação>
-<razão curta>
-
-C — Desbloquear: <ação>
-<razão curta>
-
-Recomendo <A/B/C>, porque <razão>.
-
-Escolhe A, B ou C."""
-
 
 def _load_skill_hints() -> dict:
     global _SKILL_HINTS_CACHE
@@ -73,7 +45,6 @@ def _load_skill_hints() -> dict:
     if _SKILL_HINTS_PATH.exists():
         try:
             raw = json.loads(_SKILL_HINTS_PATH.read_text(encoding="utf-8"))
-            # Ignorar chave de comentário e normalizar para lowercase
             _SKILL_HINTS_CACHE = {
                 k: [h.lower() for h in v]
                 for k, v in raw.items()
@@ -84,52 +55,6 @@ def _load_skill_hints() -> dict:
             pass
     return {}
 
-
-def is_next_action_request(query: str) -> bool:
-    text = query.lower()
-    if any(re.search(pattern, text) for pattern in NEXT_ACTION_EXPLAIN_PATTERNS):
-        return False
-    return any(re.search(pattern, text) for pattern in NEXT_ACTION_TRIGGER_PATTERNS)
-
-
-def _next_action_result(query: str) -> dict:
-    return {
-        "query": query,
-        "intent": "next-action",
-        "fallback": False,
-        "must_call": True,
-        "direct_answer_allowed": False,
-        "required_skill_call": {
-            "skill": "conselho",
-            "argv": ["--next-action", query],
-        },
-        "response_contract": NEXT_ACTION_CONTRACT,
-        "forbidden_outputs": [
-            "quarta opção",
-            "categorias diferentes de Proteger / Avançar / Desbloquear",
-            "pergunta aberta antes de executar conselho --next-action",
-            "resposta construída manualmente a partir do Vikunja",
-            "psicologia especulativa",
-            "criar, mover ou alterar tarefas sem aprovação explícita",
-        ],
-        "matches": [
-            {
-                "destination": "50_infra/skills/life/conselho",
-                "confidence": 0.99,
-                "keywords_matched": ["next-action"],
-                "context_files": ["50_infra/skills/life/conselho/AGENT.md"],
-                "applicable_skills": ["conselho"],
-                "has_runtime": False,
-                "graph_hints": [],
-                "context_digest": [],
-                "context_files_optional": False,
-                "context_read_hint": (
-                    "Primeiro chama run_skill(\"conselho\", [\"--next-action\", <query>]); "
-                    "não respondas diretamente a partir do Vikunja."
-                ),
-            }
-        ],
-    }
 
 # ── Frontmatter parser ───────────────────────────────────────────────────────
 
@@ -323,9 +248,6 @@ def _enrich_match(vault: Path, match: dict) -> dict:
 
 def dispatch(query: str, index: list[dict], top: int = 3, vault: Path | None = None) -> dict:
     """Resolve query → destinos ranked por score."""
-    if is_next_action_request(query):
-        return _next_action_result(query)
-
     query_lower = query.lower()
     query_words = set(re.split(r"[\s,/]+", query_lower))
     query_words = {w for w in query_words if len(w) > 1}
@@ -416,22 +338,11 @@ def format_json(result: dict) -> str:
 
 def format_markdown(result: dict) -> str:
     lines = [f"# Dispatch: {result['query']}", ""]
-    if result.get("must_call") and result.get("required_skill_call"):
-        call = result["required_skill_call"]
-        argv = ", ".join(repr(a) for a in call["argv"])
-        lines.append(f"Obrigatório: `run_skill(\"{call['skill']}\", [{argv}])` antes de responder.")
-        lines.append("Resposta direta construída manualmente: proibida.")
-        lines.append("")
-        lines.append("Contrato final:")
-        lines.append("```text")
-        lines.append(result["response_contract"])
-        lines.append("```")
-        return "\n".join(lines)
 
     if result["fallback"]:
-        lines.append("⚠️ Nenhum match forte encontrado. Destino: `00_inbox/`")
+        lines.append("⚠️ No strong match found. Default destination: `inbox/` or your vault capture folder.")
         lines.append("")
-        lines.append("Clarifica o destino com o Jorge.")
+        lines.append("Ask the user to clarify the topic or pick from the suggestions above.")
         return "\n".join(lines)
 
     for i, m in enumerate(result["matches"], 1):
@@ -486,8 +397,8 @@ def main():
             vault = _vault_root()
     vault = vault.resolve()
 
-    if not vault.exists() or not (vault / "99_meta").exists():
-        sys.exit(f"Erro: vault não encontrado em {vault}")
+    if not vault.exists() or not vault.is_dir():
+        sys.exit(f"Error: vault not found at {vault}")
 
     index = build_keyword_index(vault)
     result = dispatch(args.query, index, top=args.top, vault=vault)

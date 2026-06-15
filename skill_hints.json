@@ -1,0 +1,7 @@
+{
+  "_comment": "Keyword hints for vault-dispatch. Edit here — never in main.py. Format: { skill-name: [keyword, ...] }",
+  "vault-dispatch": ["routing", "onde meto", "destino", "pasta", "folder"],
+  "vault-find": ["ficheiros", "files", "recentes", "hoje", "pdf", "encontrar"],
+  "vault-graph": ["backlinks", "grafo", "graph", "wikilinks", "orphans", "hubs"],
+  "graph-weaver": ["moc", "orphan", "indexar", "obsidian"]
+}

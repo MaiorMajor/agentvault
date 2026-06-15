@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.vault-graph-stale
+.PRIVADO/
+refresh_tokens.json

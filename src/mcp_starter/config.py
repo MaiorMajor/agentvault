@@ -26,7 +26,7 @@ class Settings:
     oauth_rate_limit: int
     oauth_rate_window: int
     allowed_origins: frozenset[str]
-    server_version: str = "1.15.0"
+    server_version: str = "1.15.1"
     default_protocol_version: str = "2025-11-25"
     supported_protocol_versions: tuple[str, ...] = (
         "2025-11-25",

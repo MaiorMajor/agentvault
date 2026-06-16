@@ -36,7 +36,7 @@ from datetime import datetime
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_ROOT = SCRIPT_DIR.parents[2]
+REPO_ROOT = SCRIPT_DIR.parents[1]
 _vault_env = os.environ.get("VAULT_PATH") or os.environ.get("VAULT_ROOT")
 if not _vault_env:
     raise SystemExit("VAULT_PATH must be set in the environment.")

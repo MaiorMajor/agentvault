@@ -48,7 +48,10 @@ class TestSkillTimeout(unittest.TestCase):
 
             proc = MagicMock()
             proc.pid = 4242
-            proc.communicate.side_effect = subprocess.TimeoutExpired(cmd=["demo"], timeout=45)
+            proc.communicate.side_effect = [
+                subprocess.TimeoutExpired(cmd=["demo"], timeout=45),
+                ("", ""),
+            ]
 
             srv._settings = None
             os.environ["VAULT_PATH"] = tmp
@@ -71,6 +74,35 @@ class TestVaultLayout(unittest.TestCase):
         self.assertEqual(vault_layout.CAPTURE_FALLBACK, "inbox/")
         self.assertIn("inbox", vault_layout.INIT_DIRS)
         self.assertIn("meta", vault_layout.INIT_DIRS)
+
+
+class TestVaultFindTable(unittest.TestCase):
+    def test_print_table_shows_rows(self) -> None:
+        import importlib.util
+        from io import StringIO
+
+        skill_path = Path(__file__).resolve().parents[1] / "skills" / "vault-find" / "main.py"
+        spec = importlib.util.spec_from_file_location("vault_find_main", skill_path)
+        assert spec and spec.loader
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        rows = [
+            {
+                "ext": ".md",
+                "size_bytes": 42,
+                "modified": "2026-06-15T10:00:00",
+                "ctime": "2026-06-15T09:00:00",
+                "path": "inbox/note.md",
+            }
+        ]
+        buf = StringIO()
+        with patch("sys.stdout", buf):
+            mod.print_table(rows)
+        out = buf.getvalue()
+        self.assertIn("inbox/note.md", out)
+        self.assertIn("EXT", out)
+        self.assertIn("1 resultado(s)", out)
 
 
 if __name__ == "__main__":

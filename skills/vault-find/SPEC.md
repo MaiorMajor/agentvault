@@ -51,5 +51,5 @@ Nenhuma. Stdlib only.
 
 - Não lê conteúdo — apenas filesystem walk.
 - `_PRIVADO/` sempre excluído.
-- Hot notes (`00_inbox/simplenote/`) sempre excluídas.
+- `_PRIVADO/` e paths em `FORBIDDEN_PATHS` (vazio por defeito no starter) são excluídos.
 - Sem pesquisa semântica dentro de Markdown.

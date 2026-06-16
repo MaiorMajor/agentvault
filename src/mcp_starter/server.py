@@ -82,7 +82,7 @@ OAUTH_CLIENTS_FILE: Path
 OAUTH_RATE_LIMIT: int
 OAUTH_RATE_WINDOW: int
 ALLOWED_ORIGINS: frozenset[str]
-SERVER_VERSION: str = "1.15.0"
+SERVER_VERSION: str = "1.15.1"
 DEFAULT_PROTOCOL_VERSION: str = "2025-11-25"
 SUPPORTED_PROTOCOL_VERSIONS: tuple[str, ...] = (
     "2025-11-25",
@@ -1448,10 +1448,14 @@ def _run_skill(skill: str, argv: Optional[list] = None) -> dict:
         return out
     except subprocess.TimeoutExpired:
         if proc is not None:
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            except (ProcessLookupError, OSError):
+            if os.name == "posix":
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except (ProcessLookupError, OSError):
+                    proc.kill()
+            else:
                 proc.kill()
+            proc.communicate()
         return {"error": f"Skill '{skill}' timed out after 45s"}
     except Exception as e:
         return {"error": str(e)}

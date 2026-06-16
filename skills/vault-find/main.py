@@ -56,10 +56,17 @@ def print_table(results: list[dict]) -> None:
     if not results:
         print("Nenhum ficheiro encontrado.")
         return
-        print(f"{'EXT':<8} {'SIZE':>8}  {'MODIFIED':>19}  {'CTIME':>19}  PATH")
-        print("─" * 110)
-        for r in results:
-            print(f"{r['ext']:<8} {human_size(r['size_bytes']):>8}  {r['modified']:>19}  {r['ctime']:>19}  {r['path']}")
+
+    print(f"{'EXT':<8} {'SIZE':>8}  {'MODIFIED':>19}  {'CTIME':>19}  PATH")
+    print("─" * 110)
+    for r in results:
+        print(
+            f"{r['ext']:<8} "
+            f"{human_size(r['size_bytes']):>8}  "
+            f"{r['modified']:>19}  "
+            f"{r['ctime']:>19}  "
+            f"{r['path']}"
+        )
     print(f"\n{len(results)} resultado(s)")
 
 

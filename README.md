@@ -1,140 +1,154 @@
-# mcp-starter
+# AgentVault
 
-> Turn any Obsidian vault (or plain markdown folder) into a typed, agent-native second brain — served over the Model Context Protocol, with deterministic routing that spends **zero LLM tokens** to decide where things go.
+> A bounded, deterministic MCP runtime for Obsidian and Markdown knowledge bases.
 
-![status](https://img.shields.io/badge/status-public%20beta%20v1.16.0-success)
+[![status](https://img.shields.io/badge/status-public%20beta%20v1.16.0-success)](./CHANGELOG.md)
 [![protocol](https://img.shields.io/badge/MCP-2025--11--25-blue)](https://modelcontextprotocol.io)
 [![python](https://img.shields.io/badge/python-3.11+-3776ab)](https://www.python.org)
 ![transport](https://img.shields.io/badge/transport-SSE%20%2B%20Streamable%20HTTP-orange)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](./LICENSE)
 
-This is the open-source skeleton of an MCP server that has been running in production for **6 months**. This repo ships **14 core MCP tools** plus **3 typed skill tools** (`vault_dispatch`, `vault_find`, `vault_graph`) — the same architecture scales to dozens of typed skills over a real Obsidian vault.
+AgentVault turns a Markdown folder into operational infrastructure for AI agents. Instead of letting a model rummage through an entire vault, it exposes narrow tools for finding, reading, routing, editing and querying links — with bounded responses and deterministic operations where reasoning is unnecessary.
 
-**Current version:** `v1.16.0` (public beta). See [CHANGELOG.md](./CHANGELOG.md). GitHub releases are available on the [Releases page](https://github.com/MaiorMajor/mcp-starter/releases).
+The repository is the reusable runtime extracted from a larger private system that has run in production for six months across roughly 6,000 notes and 47 domain skills.
 
----
+> Repository and CLI names remain `mcp-starter` for backwards compatibility. **AgentVault** is the product name and positioning.
 
-## Why this is different
+## The problem
 
-Most "MCP for Obsidian" servers are a thin wrapper around `read_file` / `write_file`. They make the LLM do all the thinking: *which* folder? *which* note? *is this already answered somewhere?* — and every one of those decisions burns context window and money.
+Most Obsidian MCP servers expose generic filesystem actions such as `read_file`, `write_file` and `search`. The model must then decide:
 
-`mcp-starter` is built on one inversion: **the LLM is the most expensive resource, so push every decision you can out of it and into deterministic Python.**
+- which folder matters;
+- which files are safe or useful to read;
+- how much content to load;
+- where new information belongs;
+- whether a graph query requires loading the graph itself.
 
-| Naive MCP server | mcp-starter |
+That creates unnecessary tool calls, context pollution and inconsistent filing.
+
+AgentVault moves deterministic work out of the model and into Python:
+
+| Generic vault connector | AgentVault |
 |---|---|
-| `read_file`, `write_file`, `search` | 14 tools + **typed skills** discovered by name |
-| LLM decides where notes go | `vault-dispatch` routes by pattern matching — **0 tokens** |
-| Dumps whole files into context | Per-tool caps + truncation **hints** that name the cheaper next tool |
-| Backlinks = read the whole graph | `vault-graph` answers from a 1.8MB snapshot **never shown to the model** |
-| Behaviour baked into code | System prompt is a **repo file** (`system_prompt.md`) — change agent behaviour with no deploy |
-| Search = scan everything every time | `vault-find` / `find_files` return metadata without reading file bodies |
+| Broad file reads and full-text search | Purpose-specific, bounded read tools |
+| Model guesses where notes belong | `vault_dispatch` routes against explicit hints without an LLM call |
+| Large responses silently consume context | Hard caps plus a hint naming the cheaper next tool |
+| Link graph loaded into context | `vault_graph` returns only the requested subgraph answer |
+| Behaviour embedded in application code | Versioned `system_prompt.md` and `skill_hints.json` |
+| New capabilities require server edits | Typed skills discovered from manifests |
 
-The vault is your content (`VAULT_PATH`). Skills, routing hints, and the system prompt live in **this repo** — auditable, versioned, and extensible without forking the server.
+**The claim is not that reasoning can be eliminated.** AgentVault uses deterministic operations where deterministic operations are enough, preserving model context for tasks that actually require judgment.
 
----
+## Who this is for
 
-## Install (≤ 3 steps)
+AgentVault is designed for developers and advanced knowledge-management users who:
+
+- keep substantial knowledge in Obsidian or plain Markdown;
+- use Claude, ChatGPT, VS Code or another MCP client as an agent;
+- care about predictable writes, bounded context and inspectable behaviour;
+- are comfortable running Python locally and optionally deploying a small service.
+
+It is not a polished desktop app, a hosted SaaS, or the easiest option for someone who only wants basic chat-with-notes.
+
+## What ships
+
+- **14 core MCP tools** for bounded reads, surgical edits, movement, search and session context;
+- **3 typed skill tools**: `vault_dispatch`, `vault_find`, `vault_graph`;
+- Streamable HTTP and SSE transports;
+- static bearer authentication and OAuth 2.0 PKCE;
+- protected paths, tool annotations and configurable response caps;
+- a CLI for initialising a vault, serving the runtime and building the link graph;
+- deployment guidance for nginx, systemd and Syncthing.
+
+## Try it locally
+
+No VPS, nginx, OAuth registration or Syncthing is required to evaluate the runtime.
 
 ```bash
-# 1. Clone and install (editable — skills + system prompt stay at repo root)
-git clone https://github.com/MaiorMajor/mcp-starter.git && cd mcp-starter
-python3 -m venv .venv && source .venv/bin/activate
+git clone https://github.com/MaiorMajor/mcp-starter.git
+cd mcp-starter
+
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 
-# 2. Scaffold a vault and generate .env secrets
-mcp-starter init /path/to/your/vault
-# or: cp .env.example .env and set VAULT_PATH, MCP_API_KEY, JWT_SECRET, OAUTH_PASSWORD
-
-# 3. Run
-mcp-starter serve                    # :8000
-curl localhost:8000/health           # {"status":"ok",...}
+mcp-starter init ./demo-vault
+mcp-starter serve
 ```
 
-`obsidian_mcp.py` remains as a thin back-compat shim (`python obsidian_mcp.py`).
+Check the service:
 
-Then point any MCP client at it with `Authorization: Bearer $MCP_API_KEY` (or the OAuth/PKCE flow for Claude.ai). Behind nginx + a domain you get `https://your-host/mcp`.
-
----
-
-## Quickstart: adapt it to your vault
-
-The server is vault-agnostic — it only assumes a top-level folder convention you can change. Defaults:
-
-```
-inbox/           # immutable capture zone — read & promote, never edit in place
-work/            # active projects (add subfolders as you grow)
-personal/        # life admin
-research/        # reading & references
-meta/            # graph snapshot, changelog, rules
-_PRIVADO/        # blind to MCP — never listed, read, or written
+```bash
+curl http://localhost:8000/health
 ```
 
-`mcp-starter init` scaffolds exactly this layout.
+Point an MCP client at the local endpoint using `Authorization: Bearer $MCP_API_KEY`. The generated `.env` contains development secrets; replace them before any public deployment.
+
+## Adapt it to your vault
+
+The default layout is deliberately small and replaceable:
+
+```text
+inbox/           immutable capture zone: read and promote, never edit in place
+work/            active projects
+personal/        life administration
+research/        reading and references
+meta/            graph snapshot, changelog and operating rules
+_PRIVADO/        hidden from MCP tools
+```
 
 1. Set `VAULT_PATH` in `.env`.
-2. Edit `skill_hints.json` in this repo → keywords that map to *your* folders and skills, so `vault-dispatch` knows where your topics live.
-3. Edit `system_prompt.md` at the repo root. It's loaded on every `initialize` — no redeploy to change agent behaviour.
-4. (Optional) Build the link snapshot: `mcp-starter graph-build` or `python skills/vault-graph/main.py`.
+2. Edit `skill_hints.json` at the repository root to map your vocabulary to folders and skills.
+3. Edit `system_prompt.md` to define agent behaviour without changing server code.
+4. Optionally run `mcp-starter graph-build` to create the link snapshot.
 
-That's it — `read_note`, `write_note`, `edit_note`, `find_files`, `vault-dispatch` work immediately on your content.
+The **repository is the source of truth for runtime behaviour**: code, skills, routing hints and the system prompt are versioned here. The vault is the source of truth for your content. This separation keeps personal notes out of the codebase while making agent behaviour auditable.
 
----
+## Core tools
 
-## The 14 tools
+`session_start` · `list_folder` · `find_files` · `read_note` · `read_frontmatter` · `bulk_read` · `read_json` · `read_jsonl` · `write_note` · `edit_note` · `move_note` · `search_notes` · `get_current_datetime` · `run_skill`
 
-`session_start` · `list_folder` · `find_files` · `read_note` · `read_frontmatter` · `bulk_read` (≤20) · `read_json` · `read_jsonl` · `write_note` (create/update/append/upsert) · `edit_note` (surgical, `expect_count`) · `move_note` · `search_notes` (capped, last-resort) · `get_current_datetime` · `run_skill`
+Read paths are intentionally specialised because each represents a different point on the cost/precision curve. The write surface stays small and inspectable. MCP annotations identify read-only, destructive and idempotent actions so compatible clients can make safer approval decisions.
 
-Every tool carries the right MCP `annotations` (`readOnlyHint`, `destructiveHint`, `idempotentHint`) so clients can auto-approve the safe ones. Read paths are deliberately over-provided (six ways to read, each a different point on the cost/precision curve); the write surface is minimal and auditable.
+## Typed skills
 
----
+Each typed skill includes a `manifest.json` with an input schema. MCP clients see a first-class tool such as `vault_dispatch(query, top)` rather than a generic subprocess wrapper.
 
-## Included example skills (typed MCP tools)
+| MCP tool | Purpose |
+|---|---|
+| `vault_dispatch` | Suggest a destination from explicit routing hints without an LLM call |
+| `vault_find` | Scan file metadata without loading note bodies |
+| `vault_graph` | Query backlinks, hubs, orphans and paths without exposing the full graph |
 
-Each skill ships a `manifest.json` that registers a **real MCP tool** with `inputSchema` — clients see `vault_dispatch(query, top)` instead of only `run_skill("vault-dispatch", [...])`.
+Extension skills can still be called through `run_skill`. Add a directory under `skills/` containing `main.py` and, for a first-class typed tool, a `manifest.json`.
 
-| MCP tool | Skill dir | What it does |
-|----------|-----------|----------------|
-| `vault_dispatch` | `vault-dispatch/` | "Where does this go?" — **0 LLM tokens** |
-| `vault_find` | `vault-find/` | File metadata scan (name, ext, date) |
-| `vault_graph` | `vault-graph/` | Backlinks, hubs, orphans — graph hidden |
+## Architecture
 
-`run_skill` remains for extension skills you add under `skills/` with `main.py` + optional `manifest.json`.
-
----
-
-## Architecture (text diagram)
-
-```
-        MCP client (Claude / ChatGPT / Open WebUI)
-                       │  JSON-RPC over
-        ┌──────────────┴───────────────┐
-        │  SSE /messages   Streamable /mcp │   ← dual transport, version-negotiated
-        └──────────────┬───────────────┘
-                       │  OAuth 2.0 PKCE  ·  Bearer (static key or 15m access JWT)
-        ┌──────────────▼───────────────────────────────────────┐
-        │  mcp_starter.server  (Starlette + uvicorn)              │
-        │  • 14 tools  • caps + truncation hints               │
-        │  • system prompt from system_prompt.md on initialize │
-        └──────────────┬───────────────────────────────────────┘
-                       │ VAULT_PATH (your markdown vault)
-        ┌──────────────▼───────────────────────────────────────┐
-        │  YOUR VAULT  (markdown notes, graph snapshot)         │
-        │                                                       │
-        │  vault-dispatch ──► query → destination  (0 LLM tokens)│
-        │  vault-find     ──► metadata scan, no content read     │
-        │  vault-graph    ──► backlinks/hubs/orphans (hidden JSON)│
-        │  skill_hints.json + system_prompt.md  (repo root)      │
-        └───────────────────────────────────────────────────────┘
+```text
+MCP client
+    │ JSON-RPC over Streamable HTTP or SSE
+    ▼
+AgentVault runtime (Starlette + uvicorn)
+    │ authentication, tool schemas, caps, hints, protected paths
+    ├── core vault tools
+    ├── typed skill discovery
+    └── system_prompt.md + skill_hints.json
+            │
+            ▼
+Markdown vault (VAULT_PATH)
+    ├── notes and frontmatter
+    ├── private excluded paths
+    └── optional link-graph snapshot
 ```
 
-**Token discipline as a first-class feature:** when a response is truncated, it returns a `hint` naming the cheaper tool to use next (`"Results capped at 30. Refine query; for recent files use vault-find"`). Tool descriptions are deliberate prompt engineering (`"LAST RESORT full-text search"`, `"Call ONCE per conversation"`). The graph JSON is **never** exposed — only query subcommands are.
+The graph snapshot may be megabytes on disk, but the model only receives the bounded result of a requested query. When a tool truncates a response, it returns an explicit hint such as “refine the query” or “use `vault_find` for recent files” rather than silently dropping data.
 
----
+## Production deployment
 
-## Deploy (VPS + systemd + Syncthing)
+Production deployment is a separate concern from local evaluation.
 
 ```ini
-# /etc/systemd/system/mcp-obsidian.service
+# /etc/systemd/system/agentvault.service
 [Service]
 ExecStart=/home/you/mcp-env/bin/mcp-starter serve
 Restart=always
@@ -142,21 +156,52 @@ EnvironmentFile=/home/you/mcp-server/.env
 ```
 
 ```bash
-sudo systemctl enable --now mcp-obsidian
-curl https://your-host/mcp-health   # behind nginx with X-Accel-Buffering off for SSE
+sudo systemctl enable --now agentvault
+curl https://your-host/mcp-health
 ```
 
-- **Syncthing** keeps the vault on your laptop, phone and VPS in sync — the server just watches `VAULT_PATH`. No database, no git push to deploy content; you edit a note anywhere and the agent sees it.
-- nginx terminates TLS and proxies `/sse`, `/messages`, `/mcp`; set `X-Accel-Buffering: no` so SSE streams aren't buffered.
-- The OAuth metadata endpoints (`/.well-known/oauth-*`) make it a first-class connector for Claude.ai and ChatGPT developer mode.
+A typical deployment uses nginx for TLS and proxies `/sse`, `/messages` and `/mcp`. Disable proxy buffering for SSE. Syncthing can keep a vault available across laptop, phone and VPS without turning note capture into a Git workflow.
 
-> **Security (v1.16):** OAuth clients are persisted (`oauth_clients.json`). Redirect URIs are validated by exact match. PKCE is S256-only. Access tokens expire in 15 minutes (configurable). SSE requires authentication. By default `MCP_ALLOWED_ORIGINS` is restrictive (your `MCP_BASE_URL` + known MCP clients); set `MCP_ALLOWED_ORIGINS=*` for local dev. Before exposing publicly, set strong secrets and register client redirect URIs via `POST /register` or `OAUTH_REDIRECT_URIS` in `.env`.
+### Security boundary
 
----
+OAuth clients are persisted. Redirect URIs are exact-match validated, PKCE is S256-only, access tokens expire, SSE requires authentication and allowed origins are restrictive by default. `_PRIVADO` and configured protected paths are excluded below the skill layer.
+
+This remains a self-hosted beta. Use strong secrets, review exposed paths and test with a non-sensitive vault before placing it on the public internet.
+
+## Evidence, not magic
+
+The private production system behind this extraction currently includes:
+
+- roughly 6,000 Markdown notes;
+- 47 skills across personal, career, work, media and infrastructure domains;
+- a 2,383-node link graph queried without loading the full snapshot into model context;
+- 66 generated CV variants and 20 tracked job applications;
+- a voice-ingestion pipeline, activity context and scheduled digests.
+
+Those private domain skills are **not included** in this repository. What ships here is the reusable runtime, three representative skills and the extension contract. See [CASE-STUDY.md](./CASE-STUDY.md) for the engineering decisions and failures behind it.
+
+## Current limitations
+
+- Routing quality depends on explicit, maintained hints and a reasonably stable taxonomy.
+- There is no graphical interface or hosted service.
+- The included skills demonstrate the architecture; they do not reproduce the author's private 47-skill system.
+- Production deployment still requires infrastructure knowledge.
+- Cross-client MCP behaviour can vary, particularly around connector state and OAuth registration.
+
+## Roadmap
+
+The next product-level improvements are:
+
+- a reproducible benchmark comparing tool calls and returned context against a generic vault connector;
+- a small realistic example vault for safe evaluation;
+- a `skill new` scaffolding command with manifest, schema and tests;
+- clearer adapters between the runtime core and Obsidian-specific conventions;
+- deployment recipes that are tested independently from the local quickstart.
 
 ## Links
 
-- **Case study:** [`CASE-STUDY.md`](./CASE-STUDY.md) — 6 months from notes app to a production MCP system
-- **Author:** [Jorge MM Marques](https://github.com/MaiorMajor) — AI Engineer · Agentic Systems · Python Automation
+- [Case study](./CASE-STUDY.md)
+- [Changelog](./CHANGELOG.md)
+- [Author: Jorge MM Marques](https://github.com/MaiorMajor) — AI Engineer · Agentic Systems · Python Automation
 
-MIT. Clone this repo, point `VAULT_PATH` at your Obsidian vault, and extend `skills/` as needed.
+MIT licensed.

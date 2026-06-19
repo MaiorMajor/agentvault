@@ -3,13 +3,14 @@
 ## Unreleased
 
 ### Changed
-- Repositioned the project under the **AgentVault** product name: a bounded, deterministic MCP runtime for Obsidian and Markdown knowledge bases.
+- Renamed the project and package to **AgentVault**.
+- Renamed the public CLI entry point to `agentvault`.
+- Repositioned the project as a bounded, deterministic MCP runtime for Obsidian and Markdown knowledge bases.
 - Rewrote the README around the user problem, target audience, product boundary and local-first evaluation flow.
 - Separated local evaluation from production deployment requirements.
 - Clarified that the public repository contains the reusable runtime and three representative skills, not the author's private 47-skill deployment.
 - Corrected the source-of-truth model: the vault owns content; the repository owns runtime behaviour, skills, routing hints and the system prompt.
 - Reframed “zero-token routing” as deterministic routing for explicit taxonomies rather than a replacement for model reasoning.
-- Updated package metadata and discovery keywords while retaining the existing package and CLI names for compatibility.
 
 ## [1.16.0] — 2026-06-16
 
@@ -20,7 +21,7 @@
 - `asyncio.to_thread` for `tools/call` so skill subprocesses do not block the event loop
 
 ### Changed
-- Beta release: see [v1.16.0](https://github.com/MaiorMajor/mcp-starter/releases/tag/v1.16.0)
+- Beta release: see [v1.16.0](https://github.com/MaiorMajor/agentvault/releases/tag/v1.16.0)
 
 ## [1.15.1] — 2026-06-16
 
@@ -32,7 +33,7 @@
 ## [1.15.0] — 2026-06-16
 
 ### Added
-- Installable package (`pip install -e ".[dev]"`), CLI (`mcp-starter init|serve|graph-build`)
+- Installable package (`pip install -e ".[dev]"`), CLI (`agentvault init|serve|graph-build`)
 - Canonical vault layout (`vault_layout.py`)
 - GitHub Actions CI (Python 3.11–3.13)
 

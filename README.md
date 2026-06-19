@@ -2,7 +2,7 @@
 
 > Turn any Obsidian vault (or plain markdown folder) into a typed, agent-native second brain — served over the Model Context Protocol, with deterministic routing that spends **zero LLM tokens** to decide where things go.
 
-![status](https://img.shields.io/badge/status-public%20beta-1.16.0-success)
+![status](https://img.shields.io/badge/status-public%20beta%20v1.16.0-success)
 [![protocol](https://img.shields.io/badge/MCP-2025--11--25-blue)](https://modelcontextprotocol.io)
 [![python](https://img.shields.io/badge/python-3.11+-3776ab)](https://www.python.org)
 ![transport](https://img.shields.io/badge/transport-SSE%20%2B%20Streamable%20HTTP-orange)

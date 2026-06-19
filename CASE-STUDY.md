@@ -1,93 +1,142 @@
-# Case Study — From Notes App to a 47-Skill Second Brain in Production
+# Case Study — Building an Agent-Native Runtime for a 6,000-Note Vault
 
-**6 months. One VPS. One markdown vault. 14 MCP tools, 47 typed skills, ~6000 notes, zero-token routing.**
+**Six months. One VPS. One Markdown vault. Fourteen MCP tools, 47 private domain skills, and deterministic routing for operations that do not require an LLM.**
 
-This is the story of how a personal Obsidian vault became an agent-native operating system — and what broke along the way.
+AgentVault is the reusable runtime extracted from that system. This case study describes the larger private deployment, including capabilities that are not shipped in the public repository.
 
----
+## The problem
 
-## The arc
+The starting point was ordinary: a large Obsidian vault and several LLM clients. Capture was not the problem. Retrieval and operation were.
 
-It started as the most boring thing in the world: a folder of markdown notes. The problem wasn't capture — it was that every LLM I pointed at it was *expensive and dumb about context*. Ask it to file a note and it would read seventeen files "to be safe," burn $0.20, and still put the note in the wrong folder.
+A generic filesystem connector made the model repeatedly decide which folder to inspect, which files to read, how much context to load and where new information belonged. Defensive exploration could turn one simple action into many tool calls while still producing inconsistent results.
 
-The realisation that changed everything: **the LLM is the bottleneck, not the disk.** Context window is the scarce resource. So the whole system became an exercise in moving decisions *out* of the model and into deterministic Python — routing, graph queries, context bundling — and treating the markdown vault as the source of truth for both content *and* the engine that operates on it.
+The architectural principle became:
 
-Six months later the vault runs itself. An agent says "write today's diary" and one tool call returns exactly the bundle it needs. "Where does this note go?" is answered in under a second with zero tokens. The link graph — 2383 nodes — is queryable without ever loading it into context. And the same vault is now the portfolio: the MCP server *is* the proof of work.
+> Use deterministic code where deterministic code is enough, and preserve model context for decisions that require judgment.
 
----
+That principle shaped routing, graph queries, bounded reads, surgical edits and context bundles.
 
-## Timeline — 6 months, the milestones that mattered
+## What the public repository contains
 
-| When | Milestone | Why it mattered |
-|---|---|---|
-| **Apr 8–10** | v1 MCP server + OAuth 2.0 PKCE on the VPS | Basic `read/write/search` over the vault, reachable by Claude.ai and VS Code. The skeleton. |
-| **Apr 12–19** | **Voice pipeline** | Recording → Whisper API → `.voice.md` sidecar with rich frontmatter. 84 files transcribed and migrated. The vault started ingesting the physical world. |
-| **Apr 14** | `session_start` tool + `vault-dispatch` born | Split "routing" from "search." The first deterministic, zero-token decision moved out of the LLM. |
-| **Apr 16** | Lesson: *weak models invent solutions to problems that don't exist* | DeepSeek confidently designed a refactor that wasn't needed; Opus said "just delete the junk files." Codified the model-tiering rule. |
-| **Apr 23** | Superpowers sprint: `vault-memory` (SQLite), `heartbeat`, `what-did-i-do` | Cross-session memory + a daily Telegram digest. The vault gained a pulse. |
-| **Apr 24** | **Bug report: ChatGPT MCP connector instability** | Documented handles going stale mid-session, non-deterministic `Resource not found`. Forced the distinction: *connector bug ≠ server bug.* |
-| **May 14–28** | v1.6 → v1.9: `edit_note`, `read_frontmatter`, `bulk_read`, security hardening | Surgical edits (~90% token savings vs read+write). Batch reads. Protected-paths enforcement. |
-| **May 26** | `vault-graph` query mode | Backlinks/hubs/orphans/paths answered from a snapshot **never shown to the model**. The 1.8MB JSON stopped being a context bomb. |
-| **Jun 1** | `activity-log` — ActivityWatch as temporal context | The agent now knows what I was *actually* doing on the PC, from real telemetry, not guesses. |
-| **Jun 5** | **v1.10.0 — anti-token caps across every client** | The maturity moment: every tool capped, every truncation carries a hint naming the cheaper next tool. Structured JSON logging per call. |
-| **Jun 9** | Removed the `run_skill` allowlist → dynamic discovery | Any skill with a `main.py` is now callable by name. Adding a skill no longer means editing the server. |
+The public AgentVault runtime includes:
 
----
+- 14 bounded core MCP tools;
+- typed skill discovery through manifests and input schemas;
+- three representative skills: `vault_dispatch`, `vault_find` and `vault_graph`;
+- Streamable HTTP and SSE transports;
+- bearer authentication and OAuth 2.0 PKCE;
+- protected paths, response caps, truncation hints and tool annotations;
+- a CLI for initialisation, serving and graph generation.
 
-## The numbers
+The private production deployment contains 47 domain-specific skills. Those skills include personal data and organisation-specific workflows, so they are evidence of the extension model rather than part of the open-source package.
 
-- **47 skills** across 8 domains (vault, media, content, infra, life, career, work, meta)
-- **14 MCP tools** — read paths deliberately over-provided, write surface minimal
-- **~6000 markdown notes**, ~164 files in the infra layer alone
-- **Link graph:** 2383 nodes / 1892 edges, queryable, never loaded into context
-- **66 CV variants** generated by the `cv-inject` skill; **20 job applications** tracked through the vault's own pipeline
-- **6 months** of append-only changelog — every change by every agent (Claude, ChatGPT, Codex, Copilot, Grok, Perplexity) recorded
-- **1 VPS** (Hetzner 4GB), one systemd unit, `https://your-host`
-- **0 tokens** to route a note to its destination
+## Scale of the private deployment
 
----
+- approximately 6,000 Markdown notes;
+- 47 skills across eight domains;
+- 14 core MCP tools;
+- a link graph of 2,383 nodes and 1,892 edges;
+- 66 generated CV variants;
+- 20 job applications tracked through the vault;
+- one Hetzner VPS and one systemd service;
+- six months of append-only implementation history.
 
-## Decision log — the calls that shaped it
+These are operating figures from one system, not benchmark results or universal performance claims.
 
-**Syncthing, not Git, for the vault.** Git is for code and deliberate commits. A second brain needs to sync a note the instant I write it on my phone, with no commit ceremony. Syncthing gives the vault on laptop, phone and VPS as one live filesystem; the server just watches `VAULT_PATH`. Trade-off accepted: no commit history on content (the append-only `CHANGELOG.md` covers the decisions that matter).
+## Architecture decisions
 
-**The vault is the source of truth — including the engine.** Skills, routing hints, and the *system prompt itself* live inside the vault as files. Changing how every agent behaves is a one-line edit to a markdown file, loaded on `initialize`, no redeploy. The cost: the running copy on the VPS can drift from the audited copy in the vault (a real risk I'm still closing with proper CI).
+### Separate content from runtime behaviour
 
-**Routing with zero LLM tokens.** `vault-dispatch` resolves "where does this go?" by pattern-matching keywords from folder `CONTEXT.md` frontmatter, routing tables, and folder names. Deterministic, <1s, no API, no network. The insight: filing is a *lookup*, not a *reasoning* task — so don't pay a reasoning model to do it.
+The vault is the source of truth for personal content. The repository is the source of truth for runtime behaviour: application code, skills, routing hints and `system_prompt.md`.
 
-**Hide the graph, expose the queries.** The wikilink graph is 1.8MB of JSON. Letting a model read it would nuke the context window. So `vault-graph` exposes only query subcommands (`backlinks`, `hubs`, `orphans`, `path`) that return ≤50 lines. The model gets the answer, never the data.
+This is the current architecture. Earlier iterations stored parts of the runtime inside the vault, which made deployment convenient but allowed the VPS copy to drift from an auditable codebase. The public extraction deliberately corrected that boundary.
 
-**Dynamic skill discovery over an allowlist.** Early on, every skill had to be registered in `allowed_skills.json` before `run_skill` would touch it. Safe, but every new skill meant editing the server. On Jun 9 I deleted the allowlist: any `main.py` under `50_infra/skills/` is callable by name. Trade-off: I traded a security boundary for velocity — defensible because it's single-user behind auth, and the guardrails (`_PRIVADO` blind, `AGENT_PAUSE` circuit breaker) live deeper than the allowlist did.
+### Route explicit taxonomies without an LLM call
 
-**Caps and hints as a feature, not a limit.** Instead of letting tools return unbounded blobs, every tool caps its output *and* — the part that matters — returns a `hint` telling the model which cheaper tool to reach for next. The server actively teaches the agent to be frugal.
+`vault_dispatch` matches a query against maintained routing hints, folder conventions and skill metadata. It is useful when the destination taxonomy is explicit and reasonably stable.
 
----
+This is not semantic understanding and it does not replace reasoning. Ambiguous cases still belong with the model. The value is avoiding model calls for routine lookups that can be represented as data.
 
-## Lessons learned (the things that went wrong)
+### Hide the graph and expose queries
 
-**Weak models hallucinate work.** I asked DeepSeek R1 to refactor the audio sidecars; it produced a detailed, confident plan to unify three files. I asked Opus the same thing: the refactor wasn't needed — the pipeline already produced a unified `.voice.md`; the other two files were junk from the old faster-whisper pipeline. The fix was `rm`, not a refactor. **Rule that stuck:** architecture decisions go to a strong model first (it validates whether the problem even exists); weak models are for mechanical execution *after* the plan is validated.
+The link graph is stored as a snapshot on disk. Giving the complete snapshot to a model would waste context, so `vault_graph` exposes bounded operations such as backlinks, hubs, orphans and paths.
 
-**The ChatGPT MCP connector is flaky in ways that aren't your server's fault.** Mid-session, valid resource handles would go stale, the same path would 404 then work again, writes would fail right after a successful read chain. It looked like a vault bug; it wasn't. The discipline I learned: instrument everything (structured JSON logs per call), and rigorously separate *connector/transport bugs* from *server bugs* before touching code. The server got logging precisely because I couldn't otherwise tell which layer was lying.
+The model receives the answer to a graph question rather than the graph dataset.
 
-**Infrastructure *is* execution — but only if it's tracked.** An agent once judged my progress as "just meta-work, no real execution." It was wrong (the infra was the work) — but it had a point: there was no visible log of *what got done*, only of what was *pending*, so any agent reading the state got a biased, demoralising picture. The fix wasn't to stop building infra; it was to make completed work legible (the append-only changelog, `what-did-i-do`, `activity-log`). **A system that only surfaces the backlog will always look like failure.**
+### Cap every response and teach the next move
 
-**A "one-line fix" can be dead code in production.** The Dynamic Client Registration endpoint was patched in *below* the `uvicorn.run()` block — so when systemd runs the file as a script, that line blocks forever and the patch never executes. It "worked on my machine" because imports run differently. Lesson: know exactly how your process is launched, and put your routes where the server actually reads them.
+Large tool responses are truncated, but truncation is not silent. The response includes a hint naming a narrower or cheaper operation, such as refining a query or switching from full-text search to metadata search.
 
----
+This turns context discipline into runtime behaviour rather than relying entirely on prompt compliance.
 
-## Impact
+### Keep writes narrow
 
-- **Time saved:** the `daily-diary` skill alone replaced a ritual of ~17 defensive reads and 30+ tool calls ($0.15–0.20 each time) with a single bundle call. Multiply across `vault-dispatch`, `activity-log`, `vault-graph` — the system pays for its own context budget many times over.
-- **Career, made tangible:** the vault runs the job search it documents. `cv-inject` produced **66 tailored CV variants**; **20 applications** are tracked through a pipeline that lives in the vault. The MCP server isn't *on* the portfolio — it *is* the portfolio: a production agentic system I can point a hiring manager at.
-- **Castelform work, faster:** domain skills (`drapn-ask`, `cnq-ask`, `dgert-ask`, `dre-parser`) turned scattered legislation and KB lookups into one-call answer-packs with cited sources.
-- **Always-on:** a daily Telegram digest (`heartbeat`), automated graph regeneration, and a voice pipeline that ingests recordings without me touching a terminal.
+Read operations are specialised because they serve different precision and cost profiles. Writes remain deliberately limited: create or update a note, perform a surgical edit, and move a note.
 
----
+A smaller write surface is easier to audit and safer to approve automatically.
 
-## Call to action
+### Discover typed skills dynamically
 
-If you have a vault — or you want to build a production MCP server and stop letting a language model do your filing — **clone [`mcp-starter`](./README.md) and adapt it.** Point `VAULT_PATH` at your notes, edit one `skill_hints.json`, write your first skill with `skill-maker`. The hard parts — token discipline, deterministic routing, guardrails, dual transport, OAuth — are already solved here, learned the expensive way over six months in production.
+A skill can expose a first-class MCP tool by shipping a `manifest.json` with its input schema. This allows new capabilities without editing a central tool registry.
 
-The model is the bottleneck. Build the system that respects that, and your agents get cheaper, faster, and smarter — all at once.
+The private single-user deployment accepts the velocity/security trade-off of dynamic discovery. Protected paths and authentication remain enforced below the skill layer.
 
-— *Jorge MM Marques · AI Engineer · Agentic Systems · Python Automation · [GitHub](https://github.com/MaiorMajor)*
+## What failed
+
+### Weak models confidently solved nonexistent problems
+
+One model proposed a substantial refactor of an audio-ingestion pipeline. A stronger model first checked the premise and found that the desired unified output already existed; the extra files were obsolete artefacts. The correct fix was deletion, not architecture.
+
+The resulting operating rule is simple: use strong models to validate architecture and problem existence; use cheaper models for mechanical execution after the plan is sound.
+
+### Connector failures looked like server failures
+
+During development, client-side MCP connector state occasionally became stale. Valid resources failed and then worked again without a server change. Without structured logs, the obvious reaction was to patch the wrong layer.
+
+The runtime gained per-call structured logging so transport, client and server failures could be distinguished before code changed.
+
+### Completed infrastructure work was invisible
+
+The vault represented pending work more clearly than completed work. Any agent reading the state produced a distorted picture: a large backlog and little evidence of execution.
+
+Append-only change history, activity context and completion digests made progress legible. Infrastructure only becomes useful operational context when its effects are recorded.
+
+### A correct patch was placed in dead code
+
+An OAuth registration route was added below a blocking `uvicorn.run()` path. It appeared correct during import-based testing but never executed when the service launched as a script.
+
+The lesson was not specific to OAuth: deployment entry points are part of program semantics. Tests must exercise the process the same way production starts it.
+
+## Practical impact
+
+The private system now supports workflows such as:
+
+- assembling a daily-diary context bundle in one skill call instead of repeated defensive reads;
+- querying links without loading a multi-megabyte graph snapshot;
+- generating tailored CV variants and tracking applications from the same source of truth;
+- turning voice recordings into structured Markdown notes;
+- answering organisation-specific questions through domain skills that return narrow, cited context packs.
+
+The public repository does not claim that every user will reproduce the same savings. A reproducible comparison against a generic vault connector remains roadmap work.
+
+## Why open-source the runtime
+
+The useful contribution is not the author's private folder structure or personal automation catalogue. It is the reusable set of constraints:
+
+- bounded context by default;
+- deterministic operations for explicit lookups;
+- narrow and auditable writes;
+- typed extension skills;
+- graph queries without graph exposure;
+- local-first Markdown as the content layer;
+- production authentication and transport support.
+
+That makes AgentVault both a practical starting point for advanced users and a concrete engineering case study in agent infrastructure.
+
+## Current boundary
+
+AgentVault is a developer tool, not a consumer Obsidian plugin. It requires Python and, for public deployment, ordinary infrastructure work. Routing requires maintained hints. The included skills demonstrate the architecture but do not recreate the private system.
+
+Those constraints are intentional and should be visible rather than hidden behind a “three-step” promise.
+
+— **Jorge MM Marques** · AI Engineer · Agentic Systems · Python Automation

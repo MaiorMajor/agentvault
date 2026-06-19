@@ -5,12 +5,21 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mcp-obsidian-starter"
 version = "1.16.0"
-description = "Typed MCP server for Obsidian vaults with deterministic routing and example skills"
+description = "AgentVault: a bounded, deterministic MCP runtime for Obsidian and Markdown knowledge bases"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
 authors = [{ name = "Jorge MM Marques" }]
-keywords = ["mcp", "obsidian", "markdown", "llm", "agents"]
+keywords = [
+  "mcp",
+  "model-context-protocol",
+  "obsidian",
+  "markdown",
+  "knowledge-base",
+  "agent-runtime",
+  "llm",
+  "agents",
+]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
@@ -19,6 +28,7 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
 dependencies = [
   "starlette>=0.37",
@@ -42,6 +52,8 @@ mcp-starter = "mcp_starter.cli:main"
 [project.urls]
 Homepage = "https://github.com/MaiorMajor/mcp-starter"
 Repository = "https://github.com/MaiorMajor/mcp-starter"
+Documentation = "https://github.com/MaiorMajor/mcp-starter#readme"
+Changelog = "https://github.com/MaiorMajor/mcp-starter/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]

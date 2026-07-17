@@ -139,4 +139,4 @@ AgentVault is a developer tool, not a consumer Obsidian plugin. It requires Pyth
 
 Those constraints are intentional and should be visible rather than hidden behind a “three-step” promise.
 
-— **Jorge MM Marques** · AI Engineer · Agentic Systems · Python Automation
+— **Jorge MM Marques** · Python Developer · Automation & Internal Tools

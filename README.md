@@ -202,6 +202,6 @@ The next product-level improvements are:
 
 - [Case study](./CASE-STUDY.md)
 - [Changelog](./CHANGELOG.md)
-- [Author: Jorge MM Marques](https://github.com/MaiorMajor) — AI Engineer · Agentic Systems · Python Automation
+- [Author: Jorge MM Marques](https://github.com/MaiorMajor) — Python Developer · Automation & Internal Tools
 
 MIT licensed.
